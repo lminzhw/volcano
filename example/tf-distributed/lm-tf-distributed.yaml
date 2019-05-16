@@ -1,0 +1,71 @@
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  generateName: lm-tf-distributed-
+spec:
+  minAvailable: 2
+  schedulerName: kube-batch
+  plugins:
+    env: []
+    svc: []
+  policies:
+  - event: PodEvicted
+    action: RestartJob
+  tasks:
+  - replicas: 1
+    name: ps
+    template:
+      spec:
+        imagePullSecrets:
+          - name: default-secret
+        containers:
+        - command:
+          - sh
+          - -c 
+          - |
+            PS_HOST=`cat /etc/volcano/ps.host | sed 's/$/&:2222/g' | tr "\n" ","`;
+            WORKER_HOST=`cat /etc/volcano/worker.host | sed 's/$/&:2222/g' | tr "\n" ","`;
+            python tf-distributed.py --job_name=ps --task_index=${VK_TASK_INDEX} --ps_hosts=${PS_HOST} --worker_hosts=${WORKER_HOST}
+          image: tf-distributed:0.8
+          name: tensorflow
+          ports:
+          - containerPort: 2222
+            name: tfjob-port
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limites:
+              cpu: 1
+              memory: 2Gi
+        restartPolicy: Never
+  - replicas: 1
+    name: worker
+    policies:
+      - event: TaskCompleted
+        action: CompleteJob
+    template:
+      spec:
+        imagePullSecrets:
+          - name: default-secret
+        containers:
+        - command:
+          - sh
+          - -c 
+          - |
+            PS_HOST=`cat /etc/volcano/ps.host | sed 's/$/&:2222/g' | tr "\n" ","`;
+            WORKER_HOST=`cat /etc/volcano/worker.host | sed 's/$/&:2222/g' | tr "\n" ","`;
+            python tf-distributed.py --job_name=worker --task_index=${VK_TASK_INDEX} --ps_hosts=${PS_HOST} --worker_hosts=${WORKER_HOST}
+          image: tf-distributed:0.8
+          name: tensorflow
+          ports:
+          - containerPort: 2222
+            name: tfjob-port
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limites:
+              cpu: 1
+              memory: 2Gi
+        restartPolicy: Never
